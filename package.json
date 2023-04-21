@@ -1,0 +1,13 @@
+{
+  "name": "llevm",
+  "version": "0.0.0",
+  "description": "llevm",
+  "main": "dist/index.js",
+  "repository": "https://github.com/mhw0/llevm.git",
+  "author": "mhw0 <mhw0@yahoo.com>",
+  "license": "MIT",
+  "private": false,
+  "dependencies": {
+    "typescript": "^5.0.4"
+  }
+}
