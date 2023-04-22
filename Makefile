@@ -4,4 +4,4 @@ build:
 	yarn tsc
 
 test:
-	yarn tap --reporter tap --no-coverage --node-arg=--require=ts-node/register test/*
+	yarn tap --reporter specy --no-coverage --ts test/*.ts
