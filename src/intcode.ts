@@ -15,27 +15,41 @@ import {
   PrefixUnaryExpression,
   BinaryExpression,
   Statement,
+  Block,
+  Node,
   VariableStatement,
   ExpressionStatement,
   ParenthesizedExpression,
-  LiteralExpression
+  LiteralExpression,
+  IfStatement
 } from "typescript";
 
-type IntcodeOp = "LAB" | "CLS" | "ADD" | "SUB" | "DIV" | "MULT" | "MOD" | "EXP" | "XOR"
-  | "SHL" | "SHR" | "SAR" | "SHA3" | "BAL" | "ORIG" | "CALR" | "CSIZ" | "GASP"
-  | "BLSH" | "CINB" | "TMSP" | "BNUM" | "GASL" | "CHID" | "SFBL" | "BFEE" | "GAS"
-  | "COPY" | "MCOP" | "UNP" | "AND" | "OR" | "NOT" | "GT" | "LT" | "EQ";
+type IntcodeRelopOpcode = "LT" | "LTE" | "GT" | "GTE" | "EQ" | "NEQ";
+type IntcodeBranchOpcode = "BR" | "BLT" | "BLTE" | "BGT" | "BGTE" | "BEQ" | "BNEQ";
+type IntcodeExpressionOpcode = "ADD" | "SUB" | "MULT" | "EXP" | "DIV"
+  | "AND" | "OR" | "SHL" | "SHR" | "SAR" | "AND" | "OR" | "XOR" | "MOD"
+  | "NOT" | "COPY" | "LAB" | "UNP";
 
-type Intcode = [IntcodeOp, ...string[]]
+type IntcodeOpcode = IntcodeRelopOpcode | IntcodeBranchOpcode | IntcodeExpressionOpcode;
+type Intcode = [IntcodeOpcode, string] | [IntcodeOpcode, string, string] | [IntcodeOpcode, string, string, string];
 
 export class IntermediateCode {
-  private intcodes: Intcode[] = [];
+  private intcodes: Intcode[] = []
+  private labelCounter: number = 0;
   private tempCounter: number = 0;
 
   constructor(private source: SourceFile) { }
 
-  private allocTemp(): string {
+  public allocLabel(): string {
+    return "L" + (this.labelCounter++);
+  }
+
+  public allocTemp(): string {
     return "@t" + (this.tempCounter++);
+  }
+
+  private intcode(intcode: Intcode): void {
+    this.intcodes.push(intcode);
   }
 
   private obtainNameOf(node: VariableDeclaration | ParameterDeclaration | Identifier | QualifiedName): string {
@@ -49,97 +63,13 @@ export class IntermediateCode {
       case SyntaxKind.QualifiedName:
         return this.obtainNameOf(node.right);
       default:
-        return "";
+        throw Error("Invalid node kind: " + node);
     }
   }
 
-  private intcode(intcode: Intcode): void {
-    this.intcodes.push(intcode);
-  }
-
-  private intcodeVariableStatement(statement: VariableStatement): void {
-    assert(statement.kind == SyntaxKind.VariableStatement);
-    for (const declaration of statement.declarationList.declarations)
-      this.intcodeVariableDeclaration(declaration);
-  }
-
-  private intcodeVariableDeclaration(decl: VariableDeclaration): void {
-    assert(decl.kind == SyntaxKind.VariableDeclaration);
-    const variableName = this.obtainNameOf(decl);
-
-    const initializer = decl.initializer;
-    if (initializer == undefined)
-      return
-
-    switch (initializer.kind) {
-      case SyntaxKind.Identifier:
-      case SyntaxKind.NumericLiteral:
-      case SyntaxKind.StringLiteral:
-        const literal = this.intcodeFormatFor(initializer as LiteralExpression);
-        return this.intcode(["COPY", variableName, literal]);
-      default:
-        this.intcodeExpression(initializer, variableName);
-    }
-  }
-
-  private obtainOpcodeFrom(kind: number): IntcodeOp {
-    switch (kind) {
-      case SyntaxKind.PlusToken:
-      case SyntaxKind.PlusEqualsToken:
-        return "ADD"; // a + b
-      case SyntaxKind.MinusToken:
-      case SyntaxKind.MinusEqualsToken:
-        return "SUB"; // a - b
-      case SyntaxKind.AsteriskToken:
-      case SyntaxKind.AsteriskEqualsToken:
-        return "MULT"; // a * b
-      case SyntaxKind.AsteriskAsteriskToken:
-      case SyntaxKind.AsteriskAsteriskEqualsToken:
-        return "EXP"; // a ** b or a **= b
-      case SyntaxKind.SlashToken:
-      case SyntaxKind.SlashEqualsToken:
-        return "DIV"; // a / b
-      case SyntaxKind.LessThanLessThanToken:
-      case SyntaxKind.LessThanLessThanEqualsToken:
-        return "SHL"; // a << b or a <<= b
-      // in typescript, right shift (>>) is signed by default
-      // so the position of "SAR" and "SHR" opcodes should be swapped
-      case SyntaxKind.GreaterThanGreaterThanToken:
-      case SyntaxKind.GreaterThanGreaterThanEqualsToken:
-        return "SAR"; // a >> b or a >>= b
-      case SyntaxKind.GreaterThanGreaterThanGreaterThanToken:
-      case SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken:
-        return "SHR"; // a >>> b or a >>>= b
-      case SyntaxKind.AmpersandToken:
-      case SyntaxKind.AmpersandEqualsToken:
-        return "AND"; // a & b
-      case SyntaxKind.BarToken:
-      case SyntaxKind.BarEqualsToken:
-        return "OR"; // a | b
-      case SyntaxKind.CaretToken:
-      case SyntaxKind.CaretEqualsToken:
-        return "XOR"; // a ^ b
-      case SyntaxKind.PercentToken:
-      case SyntaxKind.PercentEqualsToken:
-        return "MOD"; // a % b or a %= b
-      case SyntaxKind.TildeToken:
-        return "NOT"; // ~a
-      case SyntaxKind.EqualsToken:
-        return "COPY";
-      default:
-        assert(0, "Invalid token kind: " + kind);
-        return "" as IntcodeOp; // TODO: not safe
-    }
-  }
-
-  private intcodeFormatFor(node: LiteralExpression | Identifier): string {
-    if (node.kind == SyntaxKind.NumericLiteral)
-      return ".%" + node.getText(this.source);
-    else if (node.kind == SyntaxKind.StringLiteral)
-      return "%" + node.text;
-    else if (node.kind == SyntaxKind.Identifier)
-      return node.text;
-    return "";
+  private intcodeBlock(block: Block): void {
+    for(const statement of block.statements)
+      this.intcodeStatement(statement);
   }
 
   private intcodeElementAccessExpression(expr: ElementAccessExpression): string {
@@ -162,34 +92,207 @@ export class IntermediateCode {
 
   private intcodeUnaryExpression(expr: PrefixUnaryExpression | PostfixUnaryExpression): string {
     const operandDest = this.intcodeExpression(expr.operand);
-    const opcode = this.obtainOpcodeFrom(expr.operator);
 
     // TODO: also handle +x, -x
     switch (expr.operator) {
       case SyntaxKind.PlusPlusToken:
+        this.intcode(["ADD", operandDest, operandDest, ".%1"]);
+        return operandDest;
       case SyntaxKind.MinusMinusToken:
-        this.intcode([opcode, operandDest, operandDest, ".%1"]);
+        this.intcode(["SUB", operandDest, operandDest, ".%1"]);
         return operandDest;
       case SyntaxKind.TildeToken:
         const dest = this.allocTemp();
-        this.intcode([opcode, dest, operandDest]);
+        this.intcode(["NOT", dest, operandDest]);
         return dest;
       default:
-        assert(0, "Invalid operator:" + expr.operator);
-        return ""
+        throw Error("Invalid operator kind: " + expr.operator);
+    }
+  }
+
+  private obtainExpressionOpcodeFor(node: Node): IntcodeExpressionOpcode | IntcodeRelopOpcode {
+    switch (node.kind) {
+      case SyntaxKind.PlusToken:
+      case SyntaxKind.PlusEqualsToken:
+        return "ADD"; // a + b
+      case SyntaxKind.MinusToken:
+      case SyntaxKind.MinusEqualsToken:
+        return "SUB"; // a - b
+      case SyntaxKind.AsteriskToken:
+      case SyntaxKind.AsteriskEqualsToken:
+        return "MULT"; // a * b
+      case SyntaxKind.AsteriskAsteriskToken:
+      case SyntaxKind.AsteriskAsteriskEqualsToken:
+        return "EXP"; // a ** b or a **= b
+      case SyntaxKind.SlashToken:
+      case SyntaxKind.SlashEqualsToken:
+        return "DIV"; // a / b
+      case SyntaxKind.LessThanToken:
+        return "LT"; // a < b
+      case SyntaxKind.LessThanEqualsToken:
+        return "LTE"; // a <= b
+      case SyntaxKind.GreaterThanToken:
+        return "GT"; // a > b
+      case SyntaxKind.GreaterThanEqualsToken:
+        return "GTE"; // a >= b
+      case SyntaxKind.EqualsEqualsToken:
+      case SyntaxKind.EqualsEqualsEqualsToken: // TODO
+        return "EQ"; // a == b
+      case SyntaxKind.AmpersandAmpersandToken:
+      case SyntaxKind.AmpersandAmpersandEqualsToken:
+        return "AND"; // a && b
+      case SyntaxKind.ExclamationEqualsToken:
+        return "NEQ"; // a != b
+      case SyntaxKind.BarBarToken:
+      case SyntaxKind.BarBarEqualsToken:
+        return "OR"; // a || b
+      case SyntaxKind.LessThanLessThanToken:
+      case SyntaxKind.LessThanLessThanEqualsToken:
+        return "SHL"; // a << b or a <<= b
+      case SyntaxKind.GreaterThanGreaterThanToken:
+      case SyntaxKind.GreaterThanGreaterThanEqualsToken:
+        return "SAR"; // a >>> b or a >>>= b
+      case SyntaxKind.GreaterThanGreaterThanGreaterThanToken:
+      case SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken:
+        return "SHR"; // a >> b or a >>= b
+      case SyntaxKind.AmpersandToken:
+      case SyntaxKind.AmpersandEqualsToken:
+        return "AND"; // a & b
+      case SyntaxKind.BarToken:
+      case SyntaxKind.BarEqualsToken:
+        return "OR"; // a | b
+      case SyntaxKind.CaretToken:
+      case SyntaxKind.CaretEqualsToken:
+        return "XOR"; // a ^ b
+      case SyntaxKind.PercentToken:
+      case SyntaxKind.PercentEqualsToken:
+        return "MOD"; // a % b or a %= b
+      case SyntaxKind.TildeToken:
+        return "NOT"; // ~a
+      case SyntaxKind.EqualsToken:
+        return "COPY";
+      default:
+        throw Error("Invalid expression opcode node kind: " + node.kind);
+    }
+  }
+
+  private obtainBranchOpcodeFor(node: Node): IntcodeBranchOpcode {
+    switch (node.kind) {
+      case SyntaxKind.LessThanToken:
+        return "BLT"; // branch if less than
+      case SyntaxKind.LessThanEqualsToken:
+        return "BLTE"; // branch if less than or equals
+      case SyntaxKind.GreaterThanToken:
+        return "BGT"; // branch if greater than
+      case SyntaxKind.GreaterThanEqualsToken:
+        return "BGTE"; // branch if greater than or equals
+      case SyntaxKind.EqualsEqualsToken:
+        return "BEQ"; // branch if equals
+      case SyntaxKind.ExclamationEqualsToken:
+        return "BNEQ"; // branch if not equals
+      default:
+        throw Error("Invalid branch opcode node kind: " + node.kind);
+    }
+  }
+
+  private intcodeControlFlowBinaryExpression(expr: BinaryExpression, ltrue: string, lfalse: string): void {
+    assert(expr.kind == SyntaxKind.BinaryExpression);
+    const operatorToken = expr.operatorToken;
+
+    switch (operatorToken.kind) {
+      case SyntaxKind.BarBarToken:
+        const falseLabel = this.allocLabel();
+        this.intcodeControlFlowExpression(expr.left, ltrue, falseLabel);
+        this.intcode(["LAB", falseLabel]);
+        this.intcodeControlFlowExpression(expr.right, ltrue, lfalse);
+        return
+      case SyntaxKind.AmpersandAmpersandToken:
+        const trueLabel = this.allocLabel();
+        this.intcodeControlFlowExpression(expr.left, trueLabel, lfalse);
+        this.intcode(["LAB", trueLabel]);
+        this.intcodeControlFlowExpression(expr.right, ltrue, lfalse);
+        return
+      case SyntaxKind.GreaterThanToken:
+      case SyntaxKind.GreaterThanEqualsToken:
+      case SyntaxKind.LessThanToken:
+      case SyntaxKind.LessThanEqualsToken:
+      case SyntaxKind.EqualsEqualsToken:
+      case SyntaxKind.EqualsEqualsEqualsToken: // TODO: should it be handled separately?
+      case SyntaxKind.ExclamationEqualsToken:
+        const branchOpcode = this.obtainBranchOpcodeFor(operatorToken);
+        const left = this.intcodeExpression(expr.left);
+        const right = this.intcodeExpression(expr.right);
+        this.intcode([branchOpcode, ltrue, left, right]);
+        this.intcode(["BR", lfalse]);
+        return
+      default:
+        const exprdest = this.intcodeExpression(expr);
+        this.intcode(["BNEQ", ltrue, exprdest, ".%0"]);
+        this.intcode(["BR", lfalse]);
+    }
+  }
+
+  private intcodeControlFlowExpression(expr: Expression, ltrue: string, lfalse: string): string | void {
+    switch (expr.kind) {
+      case SyntaxKind.BinaryExpression:
+        return this.intcodeControlFlowBinaryExpression((expr as BinaryExpression), ltrue, lfalse);
+      case SyntaxKind.TrueKeyword:
+        return this.intcode(["BR", ltrue]);
+      case SyntaxKind.FalseKeyword:
+        return this.intcode(["BR", lfalse]);
+      // a && b is the same as a != 0 && b != 0
+      case SyntaxKind.Identifier:
+        const identifier = this.obtainNameOf(expr as Identifier);
+        this.intcode(["BNEQ", ltrue, identifier, ".%0"]);
+        this.intcode(["BR", lfalse]);
+        return
+      case SyntaxKind.NumericLiteral:
+      case SyntaxKind.StringLiteral:
+      case SyntaxKind.NullKeyword:
+        const literal = this.intcodeFormatLiteral(expr as NumericLiteral);
+        this.intcode(["BNEQ", ltrue, literal, ".%0"]);
+        this.intcode(["BR", lfalse]);
+        return
+      case SyntaxKind.ParenthesizedExpression:
+        const expression = (expr as ParenthesizedExpression).expression
+        return this.intcodeControlFlowExpression(expression, ltrue, lfalse);
+    }
+  }
+
+  private intcodeFormatLiteral(node: Node): string {
+    switch (node.kind) {
+      case SyntaxKind.NumericLiteral:
+        // node.text would return "computed" value if the numeric literal is a big integer
+        // (999999999999999999999 -> 1e+21). Therefore, node.getText has to be used to get
+        // the raw literal
+        return ".%" + node.getText(this.source);
+      case SyntaxKind.Identifier:
+        return (node as Identifier).text;
+      case SyntaxKind.StringLiteral:
+        return "%" + (node as StringLiteral).text;
+      case SyntaxKind.TrueKeyword:
+        return ".%1";
+      case SyntaxKind.NullKeyword:
+      case SyntaxKind.FalseKeyword:
+      case SyntaxKind.UndefinedKeyword:
+        return ".%0";
+      default:
+        throw Error("Invalid literal node kind: " + node.kind);
     }
   }
 
   private intcodeBinaryExpression(expr: BinaryExpression, dest?: string): string {
     assert(expr.kind == SyntaxKind.BinaryExpression);
-
     const operatorToken = expr.operatorToken;
-    const leftdest = this.intcodeExpression(expr.left);
-    const rightdest = this.intcodeExpression(expr.right);
-    const operatorOpcode = this.obtainOpcodeFrom(operatorToken.kind);
+    const operatorOpcode = this.obtainExpressionOpcodeFor(operatorToken);
 
     switch (operatorToken.kind) {
-      case SyntaxKind.EqualsToken:
+      case SyntaxKind.EqualsToken: {
+        const leftdest = this.intcodeExpression(expr.left, dest);
+        const rightdest = this.intcodeExpression(expr.right, dest);
+        this.intcode(["COPY", leftdest, rightdest]);
+        return leftdest;
+      }
       case SyntaxKind.PlusEqualsToken:
       case SyntaxKind.MinusEqualsToken:
       case SyntaxKind.SlashEqualsToken:
@@ -201,60 +304,158 @@ export class IntermediateCode {
       case SyntaxKind.AmpersandEqualsToken:
       case SyntaxKind.BarEqualsToken:
       case SyntaxKind.CaretEqualsToken:
-      case SyntaxKind.PercentEqualsToken:
+      case SyntaxKind.PercentEqualsToken: {
+        const leftdest = this.intcodeExpression(expr.left, dest);
+        const rightdest = this.intcodeExpression(expr.right, dest);
         this.intcode([operatorOpcode, leftdest, leftdest, rightdest])
         return leftdest;
+      }
+      case SyntaxKind.PlusToken:
+      case SyntaxKind.MinusToken:
+      case SyntaxKind.SlashToken:
+      case SyntaxKind.AsteriskToken:
+      case SyntaxKind.AsteriskAsteriskToken:
+      case SyntaxKind.GreaterThanGreaterThanToken:
+      case SyntaxKind.GreaterThanGreaterThanGreaterThanToken:
+      case SyntaxKind.LessThanLessThanToken:
+      case SyntaxKind.BarToken:
+      case SyntaxKind.AmpersandToken:
+      case SyntaxKind.CaretToken:
+      case SyntaxKind.PercentToken:
+      case SyntaxKind.GreaterThanToken:
+      case SyntaxKind.GreaterThanEqualsToken:
+      case SyntaxKind.LessThanToken:
+      case SyntaxKind.LessThanEqualsToken:
+      case SyntaxKind.EqualsEqualsToken:
+      case SyntaxKind.EqualsEqualsEqualsToken: // TODO
+      case SyntaxKind.ExclamationEqualsToken: {
+        dest = dest || this.allocTemp();
+        const leftdest = this.intcodeExpression(expr.left);
+        const rightdest = this.intcodeExpression(expr.right);
+        this.intcode([operatorOpcode, dest, leftdest, rightdest]);
+        return dest;
+      }
+      case SyntaxKind.AmpersandAmpersandToken: {
+        dest = dest || this.allocTemp();
+        const lleft = this.allocLabel();
+        const lexit = this.allocLabel();
+
+        const leftdest = this.intcodeExpression(expr.left);
+        this.intcode(["BEQ", lleft, leftdest, ".%0"]);
+        const rightdest = this.intcodeExpression(expr.right);
+        this.intcode(["COPY", dest, rightdest]);
+        this.intcode(["BR", lexit]);
+        this.intcode(["LAB", lleft]);
+        this.intcode(["COPY", dest, leftdest]);
+        this.intcode(["LAB", lexit]);
+        return dest;
+      }
+      case SyntaxKind.BarBarToken: {
+        dest = dest || this.allocTemp();
+        const lleft = this.allocLabel();
+        const lexit = this.allocLabel();
+
+        const leftdest = this.intcodeExpression(expr.left);
+        this.intcode(["BNEQ", lleft, leftdest, ".%0"]);
+        const rightdest = this.intcodeExpression(expr.right);
+        this.intcode(["COPY", dest, rightdest]);
+        this.intcode(["BR", lexit]);
+        this.intcode(["LAB", lleft]);
+        this.intcode(["COPY", dest, leftdest]);
+        this.intcode(["LAB", lexit]);
+        return dest;
+      }
+      default:
+        throw Error("Invalid binary expression node kind: " + expr.kind);
     }
-
-    dest = dest || this.allocTemp();
-    const opcode = this.obtainOpcodeFrom(operatorToken.kind); // TODO: not safe
-    this.intcode([opcode, dest, leftdest, rightdest]);
-    return dest
-  }
-
-  private unpackParenthesizedExpression(expr: Expression): Expression {
-    if (expr.kind == SyntaxKind.ParenthesizedExpression)
-      return this.unpackParenthesizedExpression((expr as ParenthesizedExpression).expression);
-    return expr;
   }
 
   private intcodeExpression(expr: Expression, dest?: string): string {
-    if (expr.kind == SyntaxKind.ParenthesizedExpression)
-      expr = this.unpackParenthesizedExpression(expr);
+    switch (expr.kind) {
+      case SyntaxKind.BinaryExpression:
+        return this.intcodeBinaryExpression(expr as BinaryExpression, dest);
+      case SyntaxKind.ParenthesizedExpression:
+        const expression = (expr as ParenthesizedExpression).expression;
+        return this.intcodeExpression(expression, dest);
+      case SyntaxKind.Identifier:
+      case SyntaxKind.NumericLiteral:
+      case SyntaxKind.StringLiteral:
+      case SyntaxKind.NumericLiteral:
+      case SyntaxKind.TrueKeyword:
+      case SyntaxKind.FalseKeyword:
+      case SyntaxKind.NullKeyword:
+      case SyntaxKind.UndefinedKeyword:
+        return this.intcodeFormatLiteral(expr);
+      case SyntaxKind.ElementAccessExpression:
+        return this.intcodeElementAccessExpression(expr as ElementAccessExpression);
+      case SyntaxKind.PropertyAccessExpression:
+        return this.intcodePropertyAccessExpression(expr as PropertyAccessExpression);
+      case SyntaxKind.PrefixUnaryExpression:
+        return this.intcodeUnaryExpression(expr as PrefixUnaryExpression);
+      case SyntaxKind.PostfixUnaryExpression:
+        return this.intcodeUnaryExpression(expr as PostfixUnaryExpression);
+      default:
+        throw Error("Invalid expression node kind: " + expr.kind);
+    }
+  }
 
-    if (expr.kind == SyntaxKind.BinaryExpression)
-      return this.intcodeBinaryExpression(expr as BinaryExpression, dest);
+  private intcodeVariableStatement(statement: VariableStatement): void {
+    assert(statement.kind == SyntaxKind.VariableStatement);
+    for (const declaration of statement.declarationList.declarations)
+      this.intcodeVariableDeclaration(declaration);
+  }
 
-    if (expr.kind == SyntaxKind.Identifier)
-      return this.obtainNameOf(expr as Identifier);
+  private intcodeVariableDeclaration(decl: VariableDeclaration): void {
+    assert(decl.kind == SyntaxKind.VariableDeclaration);
+    const variableName = this.obtainNameOf(decl);
 
-    if (expr.kind == SyntaxKind.ElementAccessExpression)
-      return this.intcodeElementAccessExpression(expr as ElementAccessExpression);
+    const initializer = decl.initializer;
+    if (initializer == undefined)
+      return
 
-    if (expr.kind == SyntaxKind.PropertyAccessExpression)
-      return this.intcodePropertyAccessExpression(expr as PropertyAccessExpression);
+    switch (initializer.kind) {
+      case SyntaxKind.Identifier:
+      case SyntaxKind.NumericLiteral:
+      case SyntaxKind.StringLiteral:
+        const literal = this.intcodeFormatLiteral(initializer as LiteralExpression);
+        return this.intcode(["COPY", variableName, literal]);
+      default:
+        this.intcodeExpression(initializer, variableName);
+    }
+  }
 
-    if (expr.kind == SyntaxKind.PrefixUnaryExpression)
-      return this.intcodeUnaryExpression(expr as PrefixUnaryExpression);
 
-    if (expr.kind == SyntaxKind.PostfixUnaryExpression)
-      return this.intcodeUnaryExpression(expr as PostfixUnaryExpression);
+  private intcodeIfStatement(statement: IfStatement): void {
+    assert(statement.kind == SyntaxKind.IfStatement);
+    const trueLabel = this.allocLabel();
+    const falseLabel = this.allocLabel();
 
-    if (expr.kind == SyntaxKind.NumericLiteral)
-      return this.intcodeFormatFor(expr as NumericLiteral);
+    if (statement.elseStatement) {
+      const nextLabel = this.allocLabel();
 
-    if (expr.kind == SyntaxKind.StringLiteral)
-      return this.intcodeFormatFor(expr as StringLiteral);
+      this.intcodeControlFlowExpression(statement.expression, trueLabel, falseLabel);
+      this.intcode(["LAB", trueLabel]);
+      this.intcodeBlock(statement.thenStatement as Block);
+      this.intcode(["BR", nextLabel]);
+      this.intcode(["LAB", falseLabel]);
+      this.intcodeBlock(statement.elseStatement as Block);
+      this.intcode(["LAB", nextLabel]);
+      return;
+    }
 
-    assert(0);
-    return "";
+    this.intcodeControlFlowExpression(statement.expression, trueLabel, falseLabel);
+    this.intcode(["LAB", trueLabel]);
+    this.intcodeBlock(statement.thenStatement as Block)
+    this.intcode(["LAB", falseLabel]);
   }
 
   private intcodeStatement(statement: Statement): void {
     if (statement.kind == SyntaxKind.VariableStatement)
       this.intcodeVariableStatement(statement as VariableStatement);
-    else if (statement.kind == SyntaxKind.ExpressionStatement)
+    else if (statement.kind == SyntaxKind.ExpressionStatement) {
       this.intcodeExpression((statement as ExpressionStatement).expression);
+    } else if (statement.kind == SyntaxKind.IfStatement)
+      this.intcodeIfStatement(statement as IfStatement);
   }
 
   public generate() {
