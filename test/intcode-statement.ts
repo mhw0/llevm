@@ -56,3 +56,29 @@ test("intermediate code if else expression statement", function (testcase) {
   ]);
   testcase.end();
 });
+
+test("intermediate code while statement", function (testcase) {
+  const source = createTestSource("while (i > 800) { i += 32 }");
+  const intcodes = new IntermediateCode(source).generate();
+  testcase.same(intcodes, [
+    ["LAB", "L0"],
+    ["BGT", "L1", "i", ".%800"],
+    ["BR", "L2"],
+    ["LAB", "L1"],
+    ["ADD", "i", "i", ".%32"],
+    ["BR", "L0"],
+    ["LAB", "L2"]
+  ]);
+  testcase.end();
+});
+
+test("intermediate code do statement", function (testcase) {
+  const source = createTestSource("do { i += 32 } while (i < 1024)");
+  const intcodes = new IntermediateCode(source).generate();
+  testcase.same(intcodes, [
+    ["LAB", "L0"],
+    ["ADD", "i", "i", ".%32"],
+    ["BLT", "L0", "i", ".%1024"],
+  ]);
+  testcase.end();
+});

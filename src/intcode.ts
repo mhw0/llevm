@@ -21,7 +21,9 @@ import {
   ExpressionStatement,
   ParenthesizedExpression,
   LiteralExpression,
-  IfStatement
+  IfStatement,
+  WhileStatement,
+  DoStatement
 } from "typescript";
 
 type IntcodeRelopOpcode = "LT" | "LTE" | "GT" | "GTE" | "EQ" | "NEQ";
@@ -195,7 +197,7 @@ export class IntermediateCode {
     }
   }
 
-  private intcodeControlFlowBinaryExpression(expr: BinaryExpression, ltrue: string, lfalse: string): void {
+  private intcodeControlFlowBinaryExpression(expr: BinaryExpression, ltrue: string, lfalse?: string): void {
     assert(expr.kind == SyntaxKind.BinaryExpression);
     const operatorToken = expr.operatorToken;
 
@@ -223,39 +225,46 @@ export class IntermediateCode {
         const left = this.intcodeExpression(expr.left);
         const right = this.intcodeExpression(expr.right);
         this.intcode([branchOpcode, ltrue, left, right]);
-        this.intcode(["BR", lfalse]);
+        if (lfalse != undefined)
+          this.intcode(["BR", lfalse]);
         return
       default:
         const exprdest = this.intcodeExpression(expr);
         this.intcode(["BNEQ", ltrue, exprdest, ".%0"]);
-        this.intcode(["BR", lfalse]);
+        if (lfalse != undefined)
+          this.intcode(["BR", lfalse]);
     }
   }
 
-  private intcodeControlFlowExpression(expr: Expression, ltrue: string, lfalse: string): string | void {
+  private intcodeControlFlowExpression(expr: Expression, ltrue: string, lfalse?: string): string | void {
     switch (expr.kind) {
       case SyntaxKind.BinaryExpression:
         return this.intcodeControlFlowBinaryExpression((expr as BinaryExpression), ltrue, lfalse);
       case SyntaxKind.TrueKeyword:
         return this.intcode(["BR", ltrue]);
       case SyntaxKind.FalseKeyword:
-        return this.intcode(["BR", lfalse]);
+        if (lfalse != undefined)
+          this.intcode(["BR", lfalse]);
+        break
       // a && b is the same as a != 0 && b != 0
       case SyntaxKind.Identifier:
         const identifier = this.obtainNameOf(expr as Identifier);
         this.intcode(["BNEQ", ltrue, identifier, ".%0"]);
-        this.intcode(["BR", lfalse]);
-        return
+        if (lfalse != undefined)
+          this.intcode(["BR", lfalse]);
+        break
       case SyntaxKind.NumericLiteral:
       case SyntaxKind.StringLiteral:
       case SyntaxKind.NullKeyword:
         const literal = this.intcodeFormatLiteral(expr as NumericLiteral);
         this.intcode(["BNEQ", ltrue, literal, ".%0"]);
-        this.intcode(["BR", lfalse]);
-        return
+        if (lfalse != undefined)
+          this.intcode(["BR", lfalse]);
+        break
       case SyntaxKind.ParenthesizedExpression:
         const expression = (expr as ParenthesizedExpression).expression
-        return this.intcodeControlFlowExpression(expression, ltrue, lfalse);
+        this.intcodeControlFlowExpression(expression, ltrue, lfalse);
+        break
     }
   }
 
@@ -448,6 +457,31 @@ export class IntermediateCode {
     this.intcode(["LAB", falseLabel]);
   }
 
+  private intcodeWhileStatement(statement: WhileStatement): void {
+    assert(statement.kind == SyntaxKind.WhileStatement);
+    const lbegin = this.allocLabel();
+    const ltrue = this.allocLabel();
+    const lnext = this.allocLabel();
+
+    this.intcode(["LAB", lbegin]);
+    this.intcodeControlFlowExpression(statement.expression, ltrue, lnext);
+    this.intcode(["LAB", ltrue]);
+    this.intcodeStatement(statement.statement);
+    this.intcode(["BR", lbegin]);
+    this.intcode(["LAB", lnext]);
+  }
+
+  private intcodeDoStatement(statement: DoStatement): void {
+    assert(statement.kind == SyntaxKind.DoStatement);
+    const lbegin = this.allocLabel();
+
+    // TODO: this label does nothing when the expression is:
+    // do {...} while(<any truthy value>)
+    this.intcode(["LAB", lbegin]);
+    this.intcodeStatement(statement.statement);
+    this.intcodeControlFlowExpression(statement.expression, lbegin);
+  }
+
   private intcodeStatement(statement: Statement): void {
     switch (statement.kind) {
       case SyntaxKind.VariableStatement:
@@ -458,6 +492,12 @@ export class IntermediateCode {
         break
       case SyntaxKind.IfStatement:
         this.intcodeIfStatement(statement as IfStatement);
+        break
+      case SyntaxKind.WhileStatement:
+        this.intcodeWhileStatement(statement as WhileStatement);
+        break
+      case SyntaxKind.DoStatement:
+        this.intcodeDoStatement(statement as DoStatement);
         break
       case SyntaxKind.Block:
         this.intcodeBlock(statement as Block);
