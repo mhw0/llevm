@@ -40,3 +40,19 @@ test("intermediate code if else statement", function (testcase) {
   ]);
   testcase.end();
 });
+
+test("intermediate code if else expression statement", function (testcase) {
+  const source = createTestSource("if (i > a) {b=3} else {b=2}");
+  const intcodes = new IntermediateCode(source).generate();
+  testcase.same(intcodes, [
+    ["BGT", "L0", "i", "a"],
+    ["BR", "L1"],
+    ["LAB", "L0"],
+    ["COPY", "b", ".%3"],
+    ["BR", "L2"],
+    ["LAB", "L1"],
+    ["COPY", "b", ".%2"],
+    ["LAB", "L2"]
+  ]);
+  testcase.end();
+});

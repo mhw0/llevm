@@ -424,7 +424,6 @@ export class IntermediateCode {
     }
   }
 
-
   private intcodeIfStatement(statement: IfStatement): void {
     assert(statement.kind == SyntaxKind.IfStatement);
     const trueLabel = this.allocLabel();
@@ -435,27 +434,35 @@ export class IntermediateCode {
 
       this.intcodeControlFlowExpression(statement.expression, trueLabel, falseLabel);
       this.intcode(["LAB", trueLabel]);
-      this.intcodeBlock(statement.thenStatement as Block);
+      this.intcodeStatement(statement.thenStatement);
       this.intcode(["BR", nextLabel]);
       this.intcode(["LAB", falseLabel]);
-      this.intcodeBlock(statement.elseStatement as Block);
+      this.intcodeStatement(statement.elseStatement);
       this.intcode(["LAB", nextLabel]);
       return;
     }
 
     this.intcodeControlFlowExpression(statement.expression, trueLabel, falseLabel);
     this.intcode(["LAB", trueLabel]);
-    this.intcodeBlock(statement.thenStatement as Block)
+    this.intcodeStatement(statement.thenStatement)
     this.intcode(["LAB", falseLabel]);
   }
 
   private intcodeStatement(statement: Statement): void {
-    if (statement.kind == SyntaxKind.VariableStatement)
-      this.intcodeVariableStatement(statement as VariableStatement);
-    else if (statement.kind == SyntaxKind.ExpressionStatement) {
-      this.intcodeExpression((statement as ExpressionStatement).expression);
-    } else if (statement.kind == SyntaxKind.IfStatement)
-      this.intcodeIfStatement(statement as IfStatement);
+    switch (statement.kind) {
+      case SyntaxKind.VariableStatement:
+        this.intcodeVariableStatement(statement as VariableStatement);
+        break
+      case SyntaxKind.ExpressionStatement:
+        this.intcodeExpression((statement as ExpressionStatement).expression);
+        break
+      case SyntaxKind.IfStatement:
+        this.intcodeIfStatement(statement as IfStatement);
+        break
+      case SyntaxKind.Block:
+        this.intcodeBlock(statement as Block);
+        break
+    }
   }
 
   public generate() {
