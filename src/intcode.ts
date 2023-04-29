@@ -23,7 +23,9 @@ import {
   LiteralExpression,
   IfStatement,
   WhileStatement,
-  DoStatement
+  DoStatement,
+  ForStatement,
+  VariableDeclarationList
 } from "typescript";
 
 type IntcodeRelopOpcode = "LT" | "LTE" | "GT" | "GTE" | "EQ" | "NEQ";
@@ -482,6 +484,34 @@ export class IntermediateCode {
     this.intcodeControlFlowExpression(statement.expression, lbegin);
   }
 
+  private intcodeForStatement(statement: ForStatement): void {
+    assert(statement.kind == SyntaxKind.ForStatement);
+    const lbegin = this.allocLabel();
+    const ltrue = this.allocLabel();
+    const lexit = this.allocLabel();
+
+    if (statement.initializer != undefined) {
+      if (statement.initializer.kind == SyntaxKind.VariableDeclarationList)
+        for (const declaration of (statement.initializer as VariableDeclarationList).declarations)
+          this.intcodeVariableDeclaration(declaration);
+      else
+        this.intcodeExpression(statement.initializer as Expression);
+    }
+
+    this.intcode(["LAB", lbegin]);
+    if (statement.condition != undefined)
+      this.intcodeControlFlowExpression(statement.condition, ltrue, lexit);
+    // TODO: this label is not needed when the loop is infinite
+    this.intcode(["LAB", ltrue]);
+    if (statement.statement != undefined)
+      this.intcodeStatement(statement.statement);
+    if (statement.incrementor != undefined)
+      this.intcodeExpression(statement.incrementor);
+    this.intcode(["BR", lbegin]);
+    this.intcode(["LAB", lexit]);
+  }
+
+
   private intcodeStatement(statement: Statement): void {
     switch (statement.kind) {
       case SyntaxKind.VariableStatement:
@@ -498,6 +528,9 @@ export class IntermediateCode {
         break
       case SyntaxKind.DoStatement:
         this.intcodeDoStatement(statement as DoStatement);
+        break
+      case SyntaxKind.ForStatement:
+        this.intcodeForStatement(statement as ForStatement);
         break
       case SyntaxKind.Block:
         this.intcodeBlock(statement as Block);

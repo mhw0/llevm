@@ -82,3 +82,55 @@ test("intermediate code do statement", function (testcase) {
   ]);
   testcase.end();
 });
+
+test("intermediate code for statement", function (testcase) {
+  const source = createTestSource(`
+    for(let i = 0, b=8;i < 32;i++) {k++}
+    for(;i < 32;i++) {k++}
+    for(;;i++) {k++}
+    for(;;) {k++}
+    for(;;);
+  `);
+  const intcodes = new IntermediateCode(source).generate();
+
+  testcase.same(intcodes, [
+    ["COPY", "i", ".%0"],
+    ["COPY", "b", ".%8"],
+    ["LAB", "L0"],
+    ["BLT", "L1", "i", ".%32"],
+    ["BR", "L2"],
+    ["LAB", "L1"],
+    ["ADD", "k", "k", ".%1"],
+    ["ADD", "i", "i", ".%1"],
+    ["BR", "L0"],
+    ["LAB", "L2"],
+
+    ["LAB", "L3"],
+    ["BLT", "L4", "i", ".%32"],
+    ["BR", "L5"],
+    ["LAB", "L4"],
+    ["ADD", "k", "k", ".%1"],
+    ["ADD", "i", "i", ".%1"],
+    ["BR", "L3"],
+    ["LAB", "L5"],
+
+    ["LAB", "L6"],
+    ["LAB", "L7"],
+    ["ADD", "k", "k", ".%1"],
+    ["ADD", "i", "i", ".%1"],
+    ["BR", "L6"],
+    ["LAB", "L8"],
+
+    ["LAB", "L9"],
+    ["LAB", "L10"],
+    ["ADD", "k", "k", ".%1"],
+    ["BR", "L9"],
+    ["LAB", "L11"],
+
+    ["LAB", "L12"],
+    ["LAB", "L13"],
+    ["BR", "L12"],
+    ["LAB", "L14"]
+  ]);
+  testcase.end();
+});
